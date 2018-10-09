@@ -1,4 +1,4 @@
-# go-metrics logstash [![Build Status](https://travis-ci.com/jonathansp/go-metrics-logstash.svg?branch=master)](https://travis-ci.com/jonathansp/go-metrics-logstash) [![GoDoc](https://godoc.org/github.com/jonathansp/go-metrics-logstash?status.svg)](http://godoc.org/github.com/jonathansp/go-metrics-logstash)
+# go-metrics logstash [![Build Status](https://travis-ci.com/jonathansp/go-metrics-logstash.svg?branch=master)](https://travis-ci.com/jonathansp/go-metrics-logstash) [![GoDoc](https://godoc.org/github.com/globocom/go-metrics-logstash?status.svg)](http://godoc.org/github.com/globocom/go-metrics-logstash)
 
 This package provides a reporter for the [go-metrics](https://github.com/rcrowley/go-metrics) library that will post the metrics to logstash. This library is based on [go-metrics-datadog](https://github.com/syntaqx/go-metrics-datadog).
 
@@ -6,7 +6,7 @@ This package provides a reporter for the [go-metrics](https://github.com/rcrowle
 
 ```sh
 go get -u github.com/rcrowley/go-metrics
-go get -u github.com/jonathansp/go-metrics-logstash
+go get -u github.com/globocom/go-metrics-logstash
 ```
 
 ## Usage
@@ -19,7 +19,7 @@ import (
 	"time"
 
 	metrics "github.com/rcrowley/go-metrics"
-	"github.com/jonathansp/go-metrics-logstash"
+	"github.com/globocom/go-metrics-logstash"
 )
 
 func main() {

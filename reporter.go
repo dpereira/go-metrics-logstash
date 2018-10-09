@@ -2,10 +2,8 @@ package logstash
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net"
-	"strings"
 	"time"
 
 	metrics "github.com/rcrowley/go-metrics"
@@ -69,65 +67,41 @@ func (r *Reporter) FlushEach(interval time.Duration) {
 
 // FlushOnce submits a snapshot of the registry.
 func (r *Reporter) FlushOnce() error {
-	m := make(map[string]interface{})
-	// Copy default values
-	for k, v := range r.DefaultValues {
-		m[k] = v
-	}
+	var measures []*Measure
 
 	r.Registry.Each(func(name string, i interface{}) {
+		measure := NewMeasure(name, r.DefaultValues)
 		switch metric := i.(type) {
 		case metrics.Counter:
-			m[fmt.Sprintf("%s.count", name)] = metric.Count()
+			measure.AddCounter(metric)
 
 		case metrics.Gauge:
-			m[name] = float64(metric.Value())
+			measure.AddGauge(metric)
 
 		case metrics.GaugeFloat64:
-			m[name] = metric.Value()
+			measure.AddGaugeFloat64(metric)
 
 		case metrics.Histogram:
-			ms := metric.Snapshot()
-			m[fmt.Sprintf("%s.count", name)] = float64(ms.Count())
-			m[fmt.Sprintf("%s.max", name)] = float64(ms.Max())
-			m[fmt.Sprintf("%s.min", name)] = float64(ms.Min())
-			m[fmt.Sprintf("%s.mean", name)] = ms.Mean()
-			m[fmt.Sprintf("%s.stddev", name)] = ms.StdDev()
-			m[fmt.Sprintf("%s.var", name)] = ms.Variance()
-
-			for _, p := range r.Percentiles {
-				pStr := strings.Replace(fmt.Sprintf("p%g", p*100), ".", "_", -1)
-				m[fmt.Sprintf("%s.%s", name, pStr)] = ms.Percentile(p)
-			}
+			measure.AddHistogram(metric, r.Percentiles)
 
 		case metrics.Meter:
-			ms := metric.Snapshot()
-			m[fmt.Sprintf("%s.count", name)] = float64(ms.Count())
-			m[fmt.Sprintf("%s.rate1", name)] = ms.Rate1()
-			m[fmt.Sprintf("%s.rate5", name)] = ms.Rate5()
-			m[fmt.Sprintf("%s.rate15", name)] = ms.Rate15()
-			m[fmt.Sprintf("%s.mean", name)] = ms.RateMean()
+			measure.AddMeter(metric)
 
 		case metrics.Timer:
-			ms := metric.Snapshot()
-			m[fmt.Sprintf("%s.count", name)] = float64(ms.Count())
-			m[fmt.Sprintf("%s.max", name)] = time.Duration(ms.Max()).Seconds() * 1000
-			m[fmt.Sprintf("%s.min", name)] = time.Duration(ms.Min()).Seconds() * 1000
-			m[fmt.Sprintf("%s.mean", name)] = time.Duration(ms.Mean()).Seconds() * 1000
-			m[fmt.Sprintf("%s.stddev", name)] = time.Duration(ms.StdDev()).Seconds() * 1000
-
-			for _, p := range r.Percentiles {
-				duration := time.Duration(ms.Percentile(p)).Seconds() * 1000
-				pStr := strings.Replace(fmt.Sprintf("p%g", p*100), ".", "_", -1)
-				m[fmt.Sprintf("%s.%s", name, pStr)] = duration
-			}
+			measure.AddTimer(metric, r.Percentiles)
 		}
+		measures = append(measures, measure)
 	})
 
-	data, err := json.Marshal(m)
-	if err != nil {
-		return err
+	for _, measure := range measures {
+		data, err := json.Marshal(measure)
+		if err == nil {
+			_, err := r.Conn.Write(data)
+			if err != nil {
+				return err
+			}
+		}
 	}
-	_, err = r.Conn.Write(data)
-	return err
+
+	return nil
 }

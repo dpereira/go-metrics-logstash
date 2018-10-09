@@ -40,56 +40,6 @@ func (us *UDPServer) Close() {
 	us.conn.Close()
 }
 
-func TestFlushOnce(t *testing.T) {
-	serverAddr := "localhost:1984"
-	server, err := newUDPServer(1984)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer server.Close()
-
-	registry := metrics.NewRegistry()
-	reporter, err := NewReporter(registry, serverAddr, nil)
-	assert.NoError(t, err)
-
-	// Insert metrics
-	metrics.GetOrRegisterCounter("test_counter", registry).Inc(6)
-	metrics.GetOrRegisterCounter("test_counter", registry).Inc(2)
-	metrics.GetOrRegisterGauge("test_gauge", registry).Update(2)
-	metrics.GetOrRegisterGauge("test_gauge", registry).Update(3)
-	metrics.GetOrRegisterGaugeFloat64("test_gaugeFloat64", registry).Update(4)
-	metrics.GetOrRegisterGaugeFloat64("test_gaugeFloat64", registry).Update(5)
-	sample := metrics.NewUniformSample(2)
-	metrics.GetOrRegisterHistogram("test_histogram", registry, sample).Update(9)
-	metrics.GetOrRegisterHistogram("test_histogram", registry, sample).Update(10)
-	// TODO test meter and timer
-	err = reporter.FlushOnce()
-	assert.NoError(t, err)
-
-	received, err := server.Read()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	expected := `{
-		"test_counter.count": 8,
-		"test_gauge": 3,
-		"test_gaugeFloat64": 5,
-		"test_histogram.count": 2,
-		"test_histogram.min": 9,
-		"test_histogram.max": 10,
-		"test_histogram.mean": 9.5,
-		"test_histogram.stddev": 0.5,
-		"test_histogram.var": 0.25,
-		"test_histogram.p50": 9.5,
-		"test_histogram.p75": 10,
-		"test_histogram.p95": 10,
-		"test_histogram.p99": 10,
-		"test_histogram.p99_9": 10
-	}`
-	assert.JSONEq(t, expected, received)
-}
-
 func TestFlushOnceKeepsPreviousValues(t *testing.T) {
 	serverAddr := "localhost:1984"
 	server, err := newUDPServer(1984)
@@ -99,52 +49,42 @@ func TestFlushOnceKeepsPreviousValues(t *testing.T) {
 	defer server.Close()
 
 	registry := metrics.NewRegistry()
-	reporter, err := NewReporter(registry, serverAddr, nil)
+	reporter, err := NewReporter(registry, serverAddr, map[string]interface{}{
+		"client": "dummy-client",
+		"metric": "doc",
+	})
 	assert.NoError(t, err)
 
-	// Insert metrics
-	sample := metrics.NewUniformSample(3)
-	metrics.GetOrRegisterCounter("test_counter", registry).Inc(6)
-	metrics.GetOrRegisterCounter("test_counter", registry).Inc(2)
-	metrics.GetOrRegisterGauge("test_gauge", registry).Update(2)
-	metrics.GetOrRegisterGauge("test_gauge", registry).Update(3)
-	metrics.GetOrRegisterGaugeFloat64("test_gaugeFloat64", registry).Update(4)
-	metrics.GetOrRegisterGaugeFloat64("test_gaugeFloat64", registry).Update(5)
-	metrics.GetOrRegisterHistogram("test_histogram", registry, sample).Update(9)
-	metrics.GetOrRegisterHistogram("test_histogram", registry, sample).Update(10)
-	reporter.FlushOnce()
-	server.Read() // Ignore current values
-
-	metrics.GetOrRegisterCounter("test_counter", registry).Inc(4)
-	metrics.GetOrRegisterGauge("test_gauge", registry).Update(8)
-	metrics.GetOrRegisterGaugeFloat64("test_gaugeFloat64", registry).Update(9)
-	metrics.GetOrRegisterHistogram("test_histogram", registry, sample).Update(12)
-	// TODO test meter and timer
+	metrics.GetOrRegisterCounter("dummycounter", registry).Inc(6)
+	metrics.GetOrRegisterGauge("dummygauge", registry).Update(8)
 	err = reporter.FlushOnce()
 	assert.NoError(t, err)
 
-	received, err := server.Read()
+	receivedCounter, err := server.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receivedGauge, err := server.Read()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	expected := `{
-		"test_counter.count": 12,
-		"test_gauge": 8,
-		"test_gaugeFloat64": 9,
-		"test_histogram.count": 3,
-		"test_histogram.min": 9,
-		"test_histogram.max": 12,
-		"test_histogram.mean": 10.333333333333334,
-		"test_histogram.stddev": 1.247219128924647,
-		"test_histogram.var": 1.5555555555555556,
-		"test_histogram.p50": 10,
-		"test_histogram.p75": 12,
-		"test_histogram.p95": 12,
-		"test_histogram.p99": 12,
-		"test_histogram.p99_9": 12
+	expectedCounter := `{
+		"identifier0":"dummycounter",
+		"client": "dummy-client",
+		"metric": "doc",
+		"kind": "counter",
+		"counter": 6
 	}`
-	assert.JSONEq(t, expected, received)
+	expectedGauge := `{
+		"identifier0":"dummygauge",
+		"client": "dummy-client",
+		"metric": "doc",
+		"kind": "gauge",
+		"gauge": 8
+	}`
+	assert.JSONEq(t, expectedCounter, receivedCounter)
+	assert.JSONEq(t, expectedGauge, receivedGauge)
 }
 
 func TestFlushOnceWithDefaultValues(t *testing.T) {
@@ -173,9 +113,48 @@ func TestFlushOnceWithDefaultValues(t *testing.T) {
 	}
 
 	expected := `{
-		"client":"dummy-client",
+		"identifier0":"test_counter",
+		"client": "dummy-client",
 		"metric": "doc",
-		"test_counter.count": 6
+		"kind": "counter",
+		"counter": 6
+	}`
+	assert.JSONEq(t, expected, received)
+}
+func TestFlushOnceWithDotSeparatedIndetifiers(t *testing.T) {
+	serverAddr := "localhost:1984"
+	server, err := newUDPServer(1984)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	registry := metrics.NewRegistry()
+	reporter, err := NewReporter(registry, serverAddr, map[string]interface{}{
+		"client": "dummy-client",
+		"metric": "doc",
+	})
+	assert.NoError(t, err)
+
+	// Insert metrics
+	metrics.GetOrRegisterCounter("test_counter.i1.i2.i3", registry).Inc(8)
+	err = reporter.FlushOnce()
+	assert.NoError(t, err)
+
+	received, err := server.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := `{
+		"identifier0":"test_counter",
+		"identifier1":"i1",
+		"identifier2":"i2",
+		"identifier3":"i3",
+		"client": "dummy-client",
+		"metric": "doc",
+		"kind": "counter",
+		"counter": 8
 	}`
 	assert.JSONEq(t, expected, received)
 }
